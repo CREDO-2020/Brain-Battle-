@@ -98,6 +98,7 @@ export default function App() {
   const [userId, setUserId] = useState<string | null>(null);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
+  const [lastDailyChallengeDate, setLastDailyChallengeDate] = useState<string | null>(null);
   const [screen, setScreen] = useState<"home" | "quiz" | "results" | "leaderboard">("home");
   const [questionBank, setQuestionBank] = useState<Question[]>(QUESTIONS);
   const [questions, setQuestions] = useState<Question[]>(QUESTIONS);
@@ -208,6 +209,7 @@ export default function App() {
     setUserId(null);
     setCurrentStreak(0);
     setBestStreak(0);
+    setLastDailyChallengeDate(null);
   };
 
   const loadLeaderboard = async () => {
@@ -233,6 +235,7 @@ export default function App() {
     if (!supabase || !userId) return;
     supabase.from("profiles").select("current_streak,best_streak,last_daily_challenge_date").eq("id", userId).maybeSingle().then(({ data }) => {
       const today = new Date().toISOString().slice(0, 10);
+      setLastDailyChallengeDate(data?.last_daily_challenge_date ?? null);
       const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
       const streakIsActive = data?.last_daily_challenge_date === today || data?.last_daily_challenge_date === yesterday;
       setCurrentStreak(streakIsActive ? (data?.current_streak ?? 0) : 0);
@@ -258,8 +261,9 @@ export default function App() {
       return;
     }
     if (dailyChallenge) {
-      const { data: profile } = await supabase.from("profiles").select("current_streak,best_streak").eq("id", data.user.id).maybeSingle();
+      const { data: profile } = await supabase.from("profiles").select("current_streak,best_streak,last_daily_challenge_date").eq("id", data.user.id).maybeSingle();
       setCurrentStreak(profile?.current_streak ?? currentStreak);
+      setLastDailyChallengeDate(profile?.last_daily_challenge_date ?? challengeDate);
       setBestStreak(profile?.best_streak ?? bestStreak);
     }
     setSaveStatus(dailyChallenge ? "Daily challenge saved! Your streak has been updated." : "Score saved successfully!");
@@ -289,7 +293,7 @@ export default function App() {
         <div className="hero-copy"><div className="eyebrow"><Sparkles size={14}/> YOUR NEXT BRAIN BREAK</div><h1>Ready to test<br/>your <span>brain power?</span></h1><p>Challenge your knowledge, beat the clock, and climb your way to the top. Every question gets you closer to genius status.</p><div className="hero-actions"><button className="primary-button" onClick={() => startQuiz()}><Zap size={18} fill="currentColor"/> Play now <ChevronRight size={18}/></button><button className="secondary-button" onClick={() => { setShowSettings(true); if (!music.enabled) void music.start(); }}><Music2 size={17}/> Feel the vibe</button></div><div className="hero-proof"><span className="avatar-stack"><i>🧠</i><i>⚡</i><i>🎯</i></span><span><strong>Curiosity looks good on you.</strong><small>{questionBank.length} questions • {categories.length - 1} categories</small></span></div></div>
         <div className="hero-art"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="brain-card"><div className="brain-glow">🧠</div><span className="floating-tag tag-top"><Zap size={15}/> +100 XP</span><span className="floating-tag tag-bottom"><Crown size={15}/> TOP THINKER</span><span className="sparkle s-one">✦</span><span className="sparkle s-two">✧</span></div><div className="mini-stat stat-left"><span className="stat-icon purple"><Zap size={16}/></span><span><small>Quick round</small><strong>2–4 min</strong></span></div><div className="mini-stat stat-right"><span className="stat-icon green">✓</span><span><small>Keep learning</small><strong>One Q at a time</strong></span></div></div>
       </main>
-      <section className="daily-challenge-section"><div className="daily-challenge-card"><div className="daily-challenge-copy"><span className="eyebrow"><Zap size={14}/> TODAY’S COMPETITIVE CHALLENGE</span><h2>One challenge. Every day.</h2><p>Answer 10 questions, record your result, and build a streak by returning tomorrow.</p><div className="streak-stats"><div><span>🔥</span><strong>{currentStreak} day{currentStreak === 1 ? "" : "s"}</strong><small>Current streak</small></div><div><span>🏅</span><strong>{bestStreak} day{bestStreak === 1 ? "" : "s"}</strong><small>Best streak</small></div></div><button className="primary-button" onClick={() => startQuiz("All topics", true)}><Zap size={17}/> Start daily challenge <ChevronRight size={17}/></button>{!userEmail && <small className="daily-signin-note">Sign in before finishing to save your score and streak.</small>}</div><div className="daily-challenge-art" aria-hidden="true"><span>⚡</span><strong>10</strong><small>QUESTIONS</small><i>🔥</i></div></div><div className="difficulty-picker"><span>Choose difficulty</span>{DIFFICULTIES.map(level => <button key={level} className={`difficulty-option difficulty-${level} ${difficulty === level ? "selected" : ""}`} onClick={() => setDifficulty(level)}>{level.charAt(0).toUpperCase() + level.slice(1)}</button>)}</div></section>
+      <section className="daily-challenge-section"><div className="daily-challenge-card"><div className="daily-challenge-copy"><span className="eyebrow"><Zap size={14}/> TODAY’S COMPETITIVE CHALLENGE</span><h2>One challenge. Every day.</h2><p>Answer 10 questions, record your result, and build a streak by returning tomorrow.</p><div className="streak-stats"><div><span>🔥</span><strong>{currentStreak} day{currentStreak === 1 ? "" : "s"}</strong><small>Current streak</small></div><div><span>🏅</span><strong>{bestStreak} day{bestStreak === 1 ? "" : "s"}</strong><small>Best streak</small></div></div><button className="primary-button" disabled={Boolean(userEmail && lastDailyChallengeDate === new Date().toISOString().slice(0, 10))} onClick={() => startQuiz("All topics", true)}><Zap size={17}/> {userEmail && lastDailyChallengeDate === new Date().toISOString().slice(0, 10) ? "Challenge completed today" : "Start daily challenge"} <ChevronRight size={17}/></button>{!userEmail && <small className="daily-signin-note">Sign in before finishing to save your score and streak.</small>}</div><div className="daily-challenge-art" aria-hidden="true"><span>⚡</span><strong>10</strong><small>QUESTIONS</small><i>🔥</i></div></div><div className="difficulty-picker"><span>Choose difficulty</span>{DIFFICULTIES.map(level => <button key={level} className={`difficulty-option difficulty-${level} ${difficulty === level ? "selected" : ""}`} onClick={() => setDifficulty(level)}>{level.charAt(0).toUpperCase() + level.slice(1)}</button>)}</div></section>
       <section className="category-section"><div className="section-heading"><div><span className="eyebrow">PICK YOUR CHALLENGE</span><h2>Choose a category</h2></div><span className="category-count"><CircleHelp size={15}/> {categories.length - 1} categories</span></div><div className="category-grid">{categories.map(c => <button key={c.name} onClick={() => { setCategory(c.name); startQuiz(c.name); }} className={"category-card " + c.color}><span className="category-emoji">{c.emoji}</span><span className="category-name">{c.name}</span><span className="category-sub">{c.name === "All topics" ? "Mixed questions" : "Test your knowledge"}</span><span className="category-arrow"><ChevronRight size={17}/></span></button>)}</div></section>
       <footer className="footer"><span>© 2026 Brain Battle</span><span><Sparkles size={13}/> Made for curious minds</span><button onClick={() => { setShowSettings(true); window.scrollTo({top:0,behavior:"smooth"}); }}><Volume2 size={14}/> Audio settings</button></footer>
     </>}
