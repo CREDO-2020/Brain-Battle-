@@ -160,10 +160,12 @@ export default function App() {
   };
 
   const recordQuestionCompletion = async (questionId?: number) => {
-    if (!questionId || !supabase || !userId) return;
+    if (!questionId) return;
     setCompletedQuestionIds(previous => new Set(previous).add(questionId));
-    const { error } = await supabase.from("user_question_history").upsert({ user_id: userId, question_id: questionId }, { onConflict: "user_id,question_id", ignoreDuplicates: true });
-    if (error) console.error("Brain Battle could not save question history:", error.message);
+    if (supabase && userId) {
+      const { error } = await supabase.from("user_question_history").upsert({ user_id: userId, question_id: questionId }, { onConflict: "user_id,question_id", ignoreDuplicates: true });
+      if (error) console.error("Brain Battle could not save question history:", error.message);
+    }
   };
 
   useEffect(() => {
