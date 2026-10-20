@@ -8,6 +8,7 @@ create table if not exists public.questions (
   options jsonb not null,
   correct_index integer not null,
   explanation text not null default '',
+  difficulty text not null default 'medium',
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -19,6 +20,9 @@ create table if not exists public.quiz_attempts (
   score integer not null default 0,
   total_questions integer not null,
   correct_answers integer not null,
+  difficulty text not null default 'medium',
+  is_daily_challenge boolean not null default false,
+  challenge_date date,
   created_at timestamptz not null default now()
 );
 
