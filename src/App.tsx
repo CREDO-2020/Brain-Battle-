@@ -108,7 +108,8 @@ export default function App() {
   }, []);
 
   const startQuiz = (selectedCategory = category) => {
-    const pool = QUESTIONS.filter(q => selectedCategory === "All topics" || q.category === selectedCategory);
+    const sourceQuestions = questions.length ? questions : QUESTIONS;
+    const pool = sourceQuestions.filter(q => selectedCategory === "All topics" || q.category === selectedCategory);
     const next = [...pool].sort(() => Math.random() - 0.5);
     setQuestions(next.length ? next : QUESTIONS);
     setCategory(selectedCategory);
