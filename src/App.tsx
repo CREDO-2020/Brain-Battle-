@@ -8,6 +8,7 @@ type BoardPeriod = "daily" | "weekly" | "all-time";
 type Question = { id?: number; category: string; question: string; options: string[]; answer: number; explanation: string; difficulty?: Difficulty };
 const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
 const stableHash = (value: string) => { let hash = 2166136261; for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619); return hash >>> 0; };
+const GUEST_HISTORY_KEY = "brain-battle-completed-question-ids";
 const QUESTIONS: Question[] = [
   { category: "Science", question: "Which planet is known as the Red Planet?", options: ["Venus", "Mars", "Jupiter", "Mercury"], answer: 1, explanation: "Mars looks reddish because iron minerals in its soil have oxidized, or rusted." },
   { category: "Technology", question: "What does CPU stand for?", options: ["Computer Power Unit", "Central Processing Unit", "Core Program Utility", "Central Performance User"], answer: 1, explanation: "The CPU executes instructions and performs calculations for a computer." },
@@ -101,6 +102,7 @@ export default function App() {
   const [lastDailyChallengeDate, setLastDailyChallengeDate] = useState<string | null>(null);
   const [screen, setScreen] = useState<"home" | "quiz" | "results" | "leaderboard">("home");
   const [questionBank, setQuestionBank] = useState<Question[]>(QUESTIONS);
+  const [questionBankLoaded, setQuestionBankLoaded] = useState(false);
   const [completedQuestionIds, setCompletedQuestionIds] = useState<Set<number>>(new Set());
   const [questionPoolMessage, setQuestionPoolMessage] = useState("");
   const [questions, setQuestions] = useState<Question[]>(QUESTIONS);
@@ -129,10 +131,11 @@ export default function App() {
     if (!supabase) return;
     supabase.from("questions").select("id, category, question, options, correct_index, explanation, difficulty").eq("is_active", true).limit(500)
       .then(({ data, error }) => {
-        if (error || !data?.length) return;
+        if (error || !data?.length) { setQuestionBankLoaded(true); return; }
         const loaded = data.map((q: any) => ({ id: Number(q.id), category: q.category, question: q.question, options: q.options as string[], answer: q.correct_index, explanation: q.explanation ?? "", difficulty: (q.difficulty ?? "medium") as Difficulty }));
         setQuestionBank(loaded);
         setQuestions(loaded);
+        setQuestionBankLoaded(true);
       });
   }, []);
 
