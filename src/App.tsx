@@ -5,7 +5,7 @@ import "./upgrade.css";
 
 type Difficulty = "easy" | "medium" | "hard";
 type BoardPeriod = "daily" | "weekly" | "all-time";
-type Question = { category: string; question: string; options: string[]; answer: number; explanation: string; difficulty?: Difficulty };
+type Question = { id?: number; category: string; question: string; options: string[]; answer: number; explanation: string; difficulty?: Difficulty };
 const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
 const stableHash = (value: string) => { let hash = 2166136261; for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619); return hash >>> 0; };
 const QUESTIONS: Question[] = [
@@ -101,6 +101,8 @@ export default function App() {
   const [lastDailyChallengeDate, setLastDailyChallengeDate] = useState<string | null>(null);
   const [screen, setScreen] = useState<"home" | "quiz" | "results" | "leaderboard">("home");
   const [questionBank, setQuestionBank] = useState<Question[]>(QUESTIONS);
+  const [completedQuestionIds, setCompletedQuestionIds] = useState<Set<number>>(new Set());
+  const [questionPoolMessage, setQuestionPoolMessage] = useState("");
   const [questions, setQuestions] = useState<Question[]>(QUESTIONS);
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
@@ -125,31 +127,37 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("questions").select("category, question, options, correct_index, explanation, difficulty").eq("is_active", true).limit(200)
+    supabase.from("questions").select("id, category, question, options, correct_index, explanation, difficulty").eq("is_active", true).limit(500)
       .then(({ data, error }) => {
         if (error || !data?.length) return;
-        const loaded = data.map((q: any) => ({ category: q.category, question: q.question, options: q.options as string[], answer: q.correct_index, explanation: q.explanation ?? "", difficulty: (q.difficulty ?? "medium") as Difficulty }));
+        const loaded = data.map((q: any) => ({ id: Number(q.id), category: q.category, question: q.question, options: q.options as string[], answer: q.correct_index, explanation: q.explanation ?? "", difficulty: (q.difficulty ?? "medium") as Difficulty }));
         setQuestionBank(loaded);
         setQuestions(loaded);
       });
   }, []);
 
-  const startQuiz = (selectedCategory = category, isDaily = false) => {
+  const startQuiz = async (selectedCategory = category, isDaily = false) => {
+    let completed = completedQuestionIds;
+    if (supabase && userId) {
+      const { data, error } = await supabase.from("user_question_history").select("question_id").eq("user_id", userId);
+      if (error) { setQuestionPoolMessage("We could not load your saved question history. Please try again."); return; }
+      completed = new Set((data ?? []).map((row: any) => Number(row.question_id)));
+      setCompletedQuestionIds(completed);
+    }
     const sourceQuestions = (questionBank.length ? questionBank : QUESTIONS).map((q, i) => ({ ...q, difficulty: q.difficulty ?? DIFFICULTIES[i % DIFFICULTIES.length] }));
-    const pool = sourceQuestions.filter(q => (selectedCategory === "All topics" || q.category === selectedCategory) && q.difficulty === difficulty);
+    const pool = sourceQuestions.filter(q => (selectedCategory === "All topics" || q.category === selectedCategory) && q.difficulty === difficulty && !(q.id && completed.has(q.id)));
     const dateKey = new Date().toISOString().slice(0, 10);
-    const ordered = isDaily
-      ? [...pool].sort((a, b) => stableHash(`${dateKey}:${difficulty}:${a.question}`) - stableHash(`${dateKey}:${difficulty}:${b.question}`)).slice(0, 10)
-      : [...pool].sort(() => Math.random() - 0.5);
-    const fallback = sourceQuestions.filter(q => selectedCategory === "All topics" || q.category === selectedCategory);
-    const next = ordered.length ? ordered : fallback.slice(0, isDaily ? 10 : fallback.length);
-    setQuestions(next.length ? next : QUESTIONS);
-    setCategory(selectedCategory);
-    setDailyChallenge(isDaily);
-    setChallengeDate(isDaily ? dateKey : null);
-    setIndex(0); setSelected(null); setSecondsLeft(15); setScore(0); setAnswers([]);
-    setSaveStatus("Your score will be saved when this round finishes.");
-    setScreen("quiz");
+    const ordered = isDaily ? [...pool].sort((a, b) => stableHash(dateKey + ":" + difficulty + ":" + a.question) - stableHash(dateKey + ":" + difficulty + ":" + b.question)).slice(0, 10) : [...pool].sort(() => Math.random() - 0.5);
+    if (!ordered.length) { setQuestionPoolMessage("You have completed every available question in this selection! Choose another difficulty or category, or wait for more questions."); return; }
+    setQuestionPoolMessage(""); setQuestions(ordered); setCategory(selectedCategory); setDailyChallenge(isDaily); setChallengeDate(isDaily ? dateKey : null);
+    setIndex(0); setSelected(null); setSecondsLeft(15); setScore(0); setAnswers([]); setSaveStatus("Your score will be saved when this round finishes."); setScreen("quiz");
+  };
+
+  const recordQuestionCompletion = async (questionId?: number) => {
+    if (!questionId || !supabase || !userId) return;
+    setCompletedQuestionIds(previous => new Set(previous).add(questionId));
+    const { error } = await supabase.from("user_question_history").upsert({ user_id: userId, question_id: questionId }, { onConflict: "user_id,question_id", ignoreDuplicates: true });
+    if (error) console.error("Brain Battle could not save question history:", error.message);
   };
 
   useEffect(() => {
@@ -162,6 +170,7 @@ export default function App() {
     if (screen === "quiz" && secondsLeft === 0 && selected === null) {
       setSelected(-1);
       setAnswers(a => [...a, false]);
+      void recordQuestionCompletion(current?.id);
     }
   }, [screen, secondsLeft, selected]);
 
@@ -169,6 +178,7 @@ export default function App() {
     if (selected !== null) return;
     setSelected(choice);
     const correct = choice === current.answer;
+    void recordQuestionCompletion(current?.id);
     if (correct) setScore(s => s + 100);
     setAnswers(a => [...a, correct]);
     if (soundOn) music.playEffect(correct);
@@ -293,7 +303,7 @@ export default function App() {
         <div className="hero-copy"><div className="eyebrow"><Sparkles size={14}/> YOUR NEXT BRAIN BREAK</div><h1>Ready to test<br/>your <span>brain power?</span></h1><p>Challenge your knowledge, beat the clock, and climb your way to the top. Every question gets you closer to genius status.</p><div className="hero-actions"><button className="primary-button" onClick={() => startQuiz()}><Zap size={18} fill="currentColor"/> Play now <ChevronRight size={18}/></button><button className="secondary-button" onClick={() => { setShowSettings(true); if (!music.enabled) void music.start(); }}><Music2 size={17}/> Feel the vibe</button></div><div className="hero-proof"><span className="avatar-stack"><i>🧠</i><i>⚡</i><i>🎯</i></span><span><strong>Curiosity looks good on you.</strong><small>{questionBank.length} questions • {categories.length - 1} categories</small></span></div></div>
         <div className="hero-art"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="brain-card"><div className="brain-glow">🧠</div><span className="floating-tag tag-top"><Zap size={15}/> +100 XP</span><span className="floating-tag tag-bottom"><Crown size={15}/> TOP THINKER</span><span className="sparkle s-one">✦</span><span className="sparkle s-two">✧</span></div><div className="mini-stat stat-left"><span className="stat-icon purple"><Zap size={16}/></span><span><small>Quick round</small><strong>2–4 min</strong></span></div><div className="mini-stat stat-right"><span className="stat-icon green">✓</span><span><small>Keep learning</small><strong>One Q at a time</strong></span></div></div>
       </main>
-      <section className="daily-challenge-section"><div className="daily-challenge-card"><div className="daily-challenge-copy"><span className="eyebrow"><Zap size={14}/> TODAY’S COMPETITIVE CHALLENGE</span><h2>One challenge. Every day.</h2><p>Answer 10 questions, record your result, and build a streak by returning tomorrow.</p><div className="streak-stats"><div><span>🔥</span><strong>{currentStreak} day{currentStreak === 1 ? "" : "s"}</strong><small>Current streak</small></div><div><span>🏅</span><strong>{bestStreak} day{bestStreak === 1 ? "" : "s"}</strong><small>Best streak</small></div></div><button className="primary-button" disabled={Boolean(userEmail && lastDailyChallengeDate === new Date().toISOString().slice(0, 10))} onClick={() => startQuiz("All topics", true)}><Zap size={17}/> {userEmail && lastDailyChallengeDate === new Date().toISOString().slice(0, 10) ? "Challenge completed today" : "Start daily challenge"} <ChevronRight size={17}/></button>{!userEmail && <small className="daily-signin-note">Sign in before finishing to save your score and streak.</small>}</div><div className="daily-challenge-art" aria-hidden="true"><span>⚡</span><strong>10</strong><small>QUESTIONS</small><i>🔥</i></div></div><div className="difficulty-picker"><span>Choose difficulty</span>{DIFFICULTIES.map(level => <button key={level} className={`difficulty-option difficulty-${level} ${difficulty === level ? "selected" : ""}`} onClick={() => setDifficulty(level)}>{level.charAt(0).toUpperCase() + level.slice(1)}</button>)}</div></section>
+      <section className="daily-challenge-section"><div className="daily-challenge-card"><div className="daily-challenge-copy"><span className="eyebrow"><Zap size={14}/> TODAY’S COMPETITIVE CHALLENGE</span><h2>One challenge. Every day.</h2><p>Answer 10 questions, record your result, and build a streak by returning tomorrow.</p><div className="streak-stats"><div><span>🔥</span><strong>{currentStreak} day{currentStreak === 1 ? "" : "s"}</strong><small>Current streak</small></div><div><span>🏅</span><strong>{bestStreak} day{bestStreak === 1 ? "" : "s"}</strong><small>Best streak</small></div></div><button className="primary-button" disabled={Boolean(userEmail && lastDailyChallengeDate === new Date().toISOString().slice(0, 10))} onClick={() => startQuiz("All topics", true)}><Zap size={17}/> {userEmail && lastDailyChallengeDate === new Date().toISOString().slice(0, 10) ? "Challenge completed today" : "Start daily challenge"} <ChevronRight size={17}/></button>{!userEmail && <small className="daily-signin-note">Sign in before finishing to save your score and streak.</small>}</div><div className="daily-challenge-art" aria-hidden="true"><span>⚡</span><strong>10</strong><small>QUESTIONS</small><i>🔥</i></div></div><div className="difficulty-picker"><span>Choose difficulty</span>{DIFFICULTIES.map(level => <button key={level} className={`difficulty-option difficulty-${level} ${difficulty === level ? "selected" : ""}`} onClick={() => { setDifficulty(level); setQuestionPoolMessage(""); }}>{level.charAt(0).toUpperCase() + level.slice(1)}</button>)}</div>{questionPoolMessage && <p className="question-pool-message" role="status">{questionPoolMessage}</p>}<p className="question-history-note">🔁 Completed questions are saved to your account and won’t repeat when you’re signed in.</p></section>
       <section className="category-section"><div className="section-heading"><div><span className="eyebrow">PICK YOUR CHALLENGE</span><h2>Choose a category</h2></div><span className="category-count"><CircleHelp size={15}/> {categories.length - 1} categories</span></div><div className="category-grid">{categories.map(c => <button key={c.name} onClick={() => { setCategory(c.name); startQuiz(c.name); }} className={"category-card " + c.color}><span className="category-emoji">{c.emoji}</span><span className="category-name">{c.name}</span><span className="category-sub">{c.name === "All topics" ? "Mixed questions" : "Test your knowledge"}</span><span className="category-arrow"><ChevronRight size={17}/></span></button>)}</div></section>
       <footer className="footer"><span>© 2026 Brain Battle</span><span><Sparkles size={13}/> Made for curious minds</span><button onClick={() => { setShowSettings(true); window.scrollTo({top:0,behavior:"smooth"}); }}><Volume2 size={14}/> Audio settings</button></footer>
     </>}
