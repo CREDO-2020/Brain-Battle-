@@ -231,8 +231,11 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase || !userId) return;
-    supabase.from("profiles").select("current_streak,best_streak").eq("id", userId).maybeSingle().then(({ data }) => {
-      setCurrentStreak(data?.current_streak ?? 0);
+    supabase.from("profiles").select("current_streak,best_streak,last_daily_challenge_date").eq("id", userId).maybeSingle().then(({ data }) => {
+      const today = new Date().toISOString().slice(0, 10);
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const streakIsActive = data?.last_daily_challenge_date === today || data?.last_daily_challenge_date === yesterday;
+      setCurrentStreak(streakIsActive ? (data?.current_streak ?? 0) : 0);
       setBestStreak(data?.best_streak ?? 0);
     });
   }, [userId]);
