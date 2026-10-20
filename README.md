@@ -20,7 +20,7 @@ A responsive browser-based quiz game built with React, TypeScript, Vite, and Sup
 Without Supabase environment variables, the game runs with its bundled sample questions.
 
 ## Supabase
-Apply the database migration created for this project before using database questions or saving signed-in attempts. Keep service-role or secret keys out of browser code and never commit them. Only use the publishable key in `VITE_SUPABASE_PUBLISHABLE_KEY`.
+For a fresh Supabase project, run `supabase/schema.sql` in the Supabase SQL Editor. The connected Brain-Battle project already has the tables and starter questions. Keep service-role or secret keys out of browser code and never commit them. Only use the publishable key in `VITE_SUPABASE_PUBLISHABLE_KEY`.
 
 ## Current MVP notes
 - Background music is synthesized in-browser so it can be used without downloading copyrighted music files.
