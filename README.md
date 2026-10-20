@@ -1,27 +1,33 @@
 # Brain Battle 🧠
 
-A responsive browser-based quiz game built with React, TypeScript, Vite, and Supabase.
+A responsive quiz game built with React, TypeScript, Vite, and Supabase.
 
 ## Features
-- Multiple-choice quiz rounds, points, explanations, and end-of-round stats
+- Timed multiple-choice quiz rounds with a 15-second countdown per question
 - Science, Technology, General Knowledge, Sports, and History categories
-- Original synthesized background music using the Web Audio API (no external audio assets required)
-- Music toggle, answer sound effects toggle, and volume control
-- Responsive UI for desktop and mobile browsers
-- Optional Supabase question loading and signed-in result saving
+- Points, answer explanations, and end-of-round stats
+- Original synthesized background music, answer sound effects, and volume controls
+- Email/password sign-up and sign-in through Supabase Auth
+- Player profiles and a live leaderboard backed by Supabase
+- Responsive desktop and mobile interface
+- GitHub Actions production build check on pushes to `main`
 
 ## Run locally
-1. Install Node.js (LTS).
-2. Install dependencies: `npm install`
-3. Copy `.env.example` to `.env.local` and add your Supabase project URL and publishable key.
-4. Start the dev server: `npm run dev`
-5. Build for production: `npm run build`
+1. Install Node.js LTS.
+2. Run `npm install`.
+3. Copy `.env.example` to `.env.local`.
+4. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local`.
+5. Run `npm run dev`.
+6. Run `npm run build` to verify the production build.
 
-Without Supabase environment variables, the game runs with its bundled sample questions.
+Without Supabase environment variables, the game uses bundled sample questions. Accounts, saved scores, and the live leaderboard require Supabase configuration.
 
 ## Supabase
-For a fresh Supabase project, run `supabase/schema.sql` in the Supabase SQL Editor. The connected Brain-Battle project already has the tables and starter questions. Keep service-role or secret keys out of browser code and never commit them. Only use the publishable key in `VITE_SUPABASE_PUBLISHABLE_KEY`.
+The connected Brain Battle project has the `questions`, `quiz_attempts`, and `profiles` tables, plus the `leaderboard` view and a profile-creation trigger. Starter questions are seeded in the connected project.
 
-## Current MVP notes
-- Background music is synthesized in-browser so it can be used without downloading copyrighted music files.
-- The first version includes sample questions. A future iteration can add authentication screens, profile management, admin question editing, and real-time multiplayer.
+For a fresh project, `supabase/schema.sql` documents the core question and attempt schema. Apply the profile/leaderboard setup as well before enabling those features. Keep service-role or secret keys out of browser code and never commit them; only use the publishable key in `VITE_SUPABASE_PUBLISHABLE_KEY`.
+
+## Notes
+- The background soundtrack is synthesized in the browser, so no audio files need to be downloaded.
+- Quiz scores are saved when a player is signed in.
+- The app has not yet been deployed to a public production URL.
