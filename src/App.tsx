@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Brain, ChevronRight, CircleHelp, Crown, Headphones, Home, Music2, Pause, Play, RotateCcw, Settings2, Sparkles, Timer, Trophy, Volume2, VolumeX, Zap } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import "./upgrade.css";
 
-type Question = { category: string; question: string; options: string[]; answer: number; explanation: string };
+type Difficulty = "easy" | "medium" | "hard";
+type BoardPeriod = "daily" | "weekly" | "all-time";
+type Question = { category: string; question: string; options: string[]; answer: number; explanation: string; difficulty?: Difficulty };
+const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
+const stableHash = (value: string) => { let hash = 2166136261; for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619); return hash >>> 0; };
 const QUESTIONS: Question[] = [
   { category: "Science", question: "Which planet is known as the Red Planet?", options: ["Venus", "Mars", "Jupiter", "Mercury"], answer: 1, explanation: "Mars looks reddish because iron minerals in its soil have oxidized, or rusted." },
   { category: "Technology", question: "What does CPU stand for?", options: ["Computer Power Unit", "Central Processing Unit", "Core Program Utility", "Central Performance User"], answer: 1, explanation: "The CPU executes instructions and performs calculations for a computer." },
@@ -86,6 +91,13 @@ function useGameMusic() {
 
 export default function App() {
   const [category, setCategory] = useState("All topics");
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [dailyChallenge, setDailyChallenge] = useState(false);
+  const [challengeDate, setChallengeDate] = useState<string | null>(null);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<BoardPeriod>("all-time");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
   const [screen, setScreen] = useState<"home" | "quiz" | "results" | "leaderboard">("home");
   const [questionBank, setQuestionBank] = useState<Question[]>(QUESTIONS);
   const [questions, setQuestions] = useState<Question[]>(QUESTIONS);
@@ -112,22 +124,30 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("questions").select("category, question, options, correct_index, explanation").eq("is_active", true).limit(200)
+    supabase.from("questions").select("category, question, options, correct_index, explanation, difficulty").eq("is_active", true).limit(200)
       .then(({ data, error }) => {
         if (error || !data?.length) return;
-        const loaded = data.map((q: any) => ({ category: q.category, question: q.question, options: q.options as string[], answer: q.correct_index, explanation: q.explanation ?? "" }));
+        const loaded = data.map((q: any) => ({ category: q.category, question: q.question, options: q.options as string[], answer: q.correct_index, explanation: q.explanation ?? "", difficulty: (q.difficulty ?? "medium") as Difficulty }));
         setQuestionBank(loaded);
         setQuestions(loaded);
       });
   }, []);
 
-  const startQuiz = (selectedCategory = category) => {
-    const sourceQuestions = questionBank.length ? questionBank : QUESTIONS;
-    const pool = sourceQuestions.filter(q => selectedCategory === "All topics" || q.category === selectedCategory);
-    const next = [...pool].sort(() => Math.random() - 0.5);
+  const startQuiz = (selectedCategory = category, isDaily = false) => {
+    const sourceQuestions = (questionBank.length ? questionBank : QUESTIONS).map((q, i) => ({ ...q, difficulty: q.difficulty ?? DIFFICULTIES[i % DIFFICULTIES.length] }));
+    const pool = sourceQuestions.filter(q => (selectedCategory === "All topics" || q.category === selectedCategory) && q.difficulty === difficulty);
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const ordered = isDaily
+      ? [...pool].sort((a, b) => stableHash(`${dateKey}:${difficulty}:${a.question}`) - stableHash(`${dateKey}:${difficulty}:${b.question}`)).slice(0, 10)
+      : [...pool].sort(() => Math.random() - 0.5);
+    const fallback = sourceQuestions.filter(q => selectedCategory === "All topics" || q.category === selectedCategory);
+    const next = ordered.length ? ordered : fallback.slice(0, isDaily ? 10 : fallback.length);
     setQuestions(next.length ? next : QUESTIONS);
     setCategory(selectedCategory);
+    setDailyChallenge(isDaily);
+    setChallengeDate(isDaily ? dateKey : null);
     setIndex(0); setSelected(null); setSecondsLeft(15); setScore(0); setAnswers([]);
+    setSaveStatus("Your score will be saved when this round finishes.");
     setScreen("quiz");
   };
 
@@ -160,8 +180,8 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setUserEmail(data.session?.user.email ?? null));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUserEmail(session?.user.email ?? null));
+    supabase.auth.getSession().then(({ data }) => { setUserEmail(data.session?.user.email ?? null); setUserId(data.session?.user.id ?? null); });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => { setUserEmail(session?.user.email ?? null); setUserId(session?.user.id ?? null); });
     return () => listener.subscription.unsubscribe();
   }, []);
 
@@ -176,6 +196,7 @@ export default function App() {
       setAuthMessage("Account created. Check your email to confirm it, then sign in.");
     } else {
       setUserEmail(result.data.user?.email ?? authEmail.trim());
+      setUserId(result.data.user?.id ?? null);
       setShowAuth(false);
       setAuthPassword("");
     }
@@ -184,17 +205,37 @@ export default function App() {
   const handleSignOut = async () => {
     if (supabase) await supabase.auth.signOut();
     setUserEmail(null);
+    setUserId(null);
+    setCurrentStreak(0);
+    setBestStreak(0);
+  };
+
+  const loadLeaderboard = async () => {
+    setLeaderboardLoading(true);
+    if (!supabase) { setLeaderboardLoading(false); return; }
+    let query = supabase.from("leaderboard").select("display_name,score,category,correct_answers,total_questions,created_at");
+    if (leaderboardPeriod === "daily") {
+      query = query.gte("created_at", `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    } else if (leaderboardPeriod === "weekly") {
+      const weekStart = new Date(); weekStart.setUTCDate(weekStart.getUTCDate() - 7);
+      query = query.gte("created_at", weekStart.toISOString());
+    }
+    const { data, error } = await query.order("score", { ascending: false }).order("created_at", { ascending: true }).limit(50);
+    if (!error && data) setLeaderboard(data as typeof leaderboard);
+    setLeaderboardLoading(false);
   };
 
   useEffect(() => {
-    if (screen !== "leaderboard") return;
-    setLeaderboardLoading(true);
-    if (!supabase) { setLeaderboardLoading(false); return; }
-    supabase.from("leaderboard").select("display_name,score,category,correct_answers,total_questions,created_at").order("score", { ascending: false }).order("created_at", { ascending: true }).limit(50).then(({ data, error }) => {
-      if (!error && data) setLeaderboard(data as typeof leaderboard);
-      setLeaderboardLoading(false);
+    if (screen === "leaderboard") void loadLeaderboard();
+  }, [screen, leaderboardPeriod]);
+
+  useEffect(() => {
+    if (!supabase || !userId) return;
+    supabase.from("profiles").select("current_streak,best_streak").eq("id", userId).maybeSingle().then(({ data }) => {
+      setCurrentStreak(data?.current_streak ?? 0);
+      setBestStreak(data?.best_streak ?? 0);
     });
-  }, [screen]);
+  }, [userId]);
 
   const saveResult = async () => {
     if (!supabase) {
@@ -207,13 +248,18 @@ export default function App() {
       setSaveStatus("Score not saved: please sign in again, then finish another quiz.");
       return;
     }
-    const { error } = await supabase.from("quiz_attempts").insert({ user_id: data.user.id, category, score, total_questions: questions.length, correct_answers: answers.filter(Boolean).length });
+    const { error } = await supabase.from("quiz_attempts").insert({ user_id: data.user.id, category, score, total_questions: questions.length, correct_answers: answers.filter(Boolean).length, difficulty, is_daily_challenge: dailyChallenge, challenge_date: dailyChallenge ? challengeDate : null });
     if (error) {
       console.error("Brain Battle could not save quiz result:", error);
-      setSaveStatus("Score not saved: " + error.message);
+      setSaveStatus(dailyChallenge && error.code === "23505" ? "You have already completed today’s challenge. Come back tomorrow to continue your streak." : "Score not saved: " + error.message);
       return;
     }
-    setSaveStatus("Score saved successfully!");
+    if (dailyChallenge) {
+      const { data: profile } = await supabase.from("profiles").select("current_streak,best_streak").eq("id", data.user.id).maybeSingle();
+      setCurrentStreak(profile?.current_streak ?? currentStreak);
+      setBestStreak(profile?.best_streak ?? bestStreak);
+    }
+    setSaveStatus(dailyChallenge ? "Daily challenge saved! Your streak has been updated." : "Score saved successfully!");
   };
   useEffect(() => { if (screen === "results") void saveResult(); }, [screen]);
 
@@ -240,14 +286,15 @@ export default function App() {
         <div className="hero-copy"><div className="eyebrow"><Sparkles size={14}/> YOUR NEXT BRAIN BREAK</div><h1>Ready to test<br/>your <span>brain power?</span></h1><p>Challenge your knowledge, beat the clock, and climb your way to the top. Every question gets you closer to genius status.</p><div className="hero-actions"><button className="primary-button" onClick={() => startQuiz()}><Zap size={18} fill="currentColor"/> Play now <ChevronRight size={18}/></button><button className="secondary-button" onClick={() => { setShowSettings(true); if (!music.enabled) void music.start(); }}><Music2 size={17}/> Feel the vibe</button></div><div className="hero-proof"><span className="avatar-stack"><i>🧠</i><i>⚡</i><i>🎯</i></span><span><strong>Curiosity looks good on you.</strong><small>{questionBank.length} questions • {categories.length - 1} categories</small></span></div></div>
         <div className="hero-art"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="brain-card"><div className="brain-glow">🧠</div><span className="floating-tag tag-top"><Zap size={15}/> +100 XP</span><span className="floating-tag tag-bottom"><Crown size={15}/> TOP THINKER</span><span className="sparkle s-one">✦</span><span className="sparkle s-two">✧</span></div><div className="mini-stat stat-left"><span className="stat-icon purple"><Zap size={16}/></span><span><small>Quick round</small><strong>2–4 min</strong></span></div><div className="mini-stat stat-right"><span className="stat-icon green">✓</span><span><small>Keep learning</small><strong>One Q at a time</strong></span></div></div>
       </main>
+      <section className="daily-challenge-section"><div className="daily-challenge-card"><div className="daily-challenge-copy"><span className="eyebrow"><Zap size={14}/> TODAY’S COMPETITIVE CHALLENGE</span><h2>One challenge. Every day.</h2><p>Answer 10 questions, record your result, and build a streak by returning tomorrow.</p><div className="streak-stats"><div><span>🔥</span><strong>{currentStreak} day{currentStreak === 1 ? "" : "s"}</strong><small>Current streak</small></div><div><span>🏅</span><strong>{bestStreak} day{bestStreak === 1 ? "" : "s"}</strong><small>Best streak</small></div></div><button className="primary-button" onClick={() => startQuiz("All topics", true)}><Zap size={17}/> Start daily challenge <ChevronRight size={17}/></button>{!userEmail && <small className="daily-signin-note">Sign in before finishing to save your score and streak.</small>}</div><div className="daily-challenge-art" aria-hidden="true"><span>⚡</span><strong>10</strong><small>QUESTIONS</small><i>🔥</i></div></div><div className="difficulty-picker"><span>Choose difficulty</span>{DIFFICULTIES.map(level => <button key={level} className={`difficulty-option difficulty-${level} ${difficulty === level ? "selected" : ""}`} onClick={() => setDifficulty(level)}>{level.charAt(0).toUpperCase() + level.slice(1)}</button>)}</div></section>
       <section className="category-section"><div className="section-heading"><div><span className="eyebrow">PICK YOUR CHALLENGE</span><h2>Choose a category</h2></div><span className="category-count"><CircleHelp size={15}/> {categories.length - 1} categories</span></div><div className="category-grid">{categories.map(c => <button key={c.name} onClick={() => { setCategory(c.name); startQuiz(c.name); }} className={"category-card " + c.color}><span className="category-emoji">{c.emoji}</span><span className="category-name">{c.name}</span><span className="category-sub">{c.name === "All topics" ? "Mixed questions" : "Test your knowledge"}</span><span className="category-arrow"><ChevronRight size={17}/></span></button>)}</div></section>
       <footer className="footer"><span>© 2026 Brain Battle</span><span><Sparkles size={13}/> Made for curious minds</span><button onClick={() => { setShowSettings(true); window.scrollTo({top:0,behavior:"smooth"}); }}><Volume2 size={14}/> Audio settings</button></footer>
     </>}
 
-    {screen === "leaderboard" && <main className="leaderboard-wrap"><div className="leaderboard-heading"><span className="eyebrow"><Crown size={14}/> THE BRAIN BATTLE ARENA</span><h1>Top <span>thinkers.</span></h1><p>Every round is a chance to climb the ranks. Play a quiz to get on the board.</p><button className="secondary-button" onClick={() => startQuiz("All topics")}><Zap size={16}/> Play a round</button></div><section className="leaderboard-card"><div className="leaderboard-card-title"><div><Trophy size={18}/><strong>Leaderboard</strong></div><span>ALL-TIME SCORES</span></div>{leaderboardLoading ? <p className="leaderboard-empty">Loading scores…</p> : leaderboard.length === 0 ? <div className="leaderboard-empty"><span>🏆</span><strong>Be the first brain champion</strong><p>Sign in and complete a quiz to start building the leaderboard.</p></div> : <div className="leaderboard-list">{leaderboard.map((entry,i) => <div className="leaderboard-row" key={`${entry.display_name}-${entry.created_at}-${i}`}><span className={`leaderboard-rank rank-${i+1}`}>{i===0?"♛":String(i+1).padStart(2,"0")}</span><span className="leaderboard-avatar">{entry.display_name.trim().charAt(0).toUpperCase() || "B"}</span><span className="leaderboard-player"><strong>{entry.display_name}</strong><small>{entry.category} · {entry.correct_answers}/{entry.total_questions} correct</small></span><strong className="leaderboard-points">{entry.score.toLocaleString()} <small>PTS</small></strong></div>)}</div>}<button className="leaderboard-refresh" onClick={() => { setLeaderboardLoading(true); if (supabase) void supabase.from("leaderboard").select("display_name,score,category,correct_answers,total_questions,created_at").order("score",{ascending:false}).order("created_at",{ascending:true}).limit(50).then(({data,error})=>{if(!error&&data)setLeaderboard(data as typeof leaderboard);setLeaderboardLoading(false);}); else setLeaderboardLoading(false); }}>Refresh scores <RotateCcw size={14}/></button></section></main>}
+    {screen === "leaderboard" && <main className="leaderboard-wrap"><div className="leaderboard-heading"><span className="eyebrow"><Crown size={14}/> THE BRAIN BATTLE ARENA</span><h1>Top <span>thinkers.</span></h1><p>Every round is a chance to climb the ranks. Play a quiz to get on the board.</p><button className="secondary-button" onClick={() => startQuiz("All topics")}><Zap size={16}/> Play a round</button></div><section className="leaderboard-card"><div className="leaderboard-card-title"><div><Trophy size={18}/><strong>Leaderboard</strong></div><span>{leaderboardPeriod.toUpperCase()} SCORES</span></div><div className="ranking-tabs" role="group" aria-label="Ranking period">{(["daily", "weekly", "all-time"] as BoardPeriod[]).map(period => <button key={period} className={leaderboardPeriod === period ? "active" : ""} onClick={() => setLeaderboardPeriod(period)}>{period === "all-time" ? "All-time" : period.charAt(0).toUpperCase() + period.slice(1)}</button>)}</div>{leaderboardLoading ? <p className="leaderboard-empty">Loading scores…</p> : leaderboard.length === 0 ? <div className="leaderboard-empty"><span>🏆</span><strong>Be the first brain champion</strong><p>Sign in and complete a quiz to start building the leaderboard.</p></div> : <div className="leaderboard-list">{leaderboard.map((entry,i) => <div className="leaderboard-row" key={`${entry.display_name}-${entry.created_at}-${i}`}><span className={`leaderboard-rank rank-${i+1}`}>{i===0?"♛":String(i+1).padStart(2,"0")}</span><span className="leaderboard-avatar">{entry.display_name.trim().charAt(0).toUpperCase() || "B"}</span><span className="leaderboard-player"><strong>{entry.display_name}</strong><small>{entry.category} · {entry.correct_answers}/{entry.total_questions} correct</small></span><strong className="leaderboard-points">{entry.score.toLocaleString()} <small>PTS</small></strong></div>)}</div>}<button className="leaderboard-refresh" onClick={() => void loadLeaderboard()}>Refresh scores <RotateCcw size={14}/></button></section></main>}
 
-    {screen === "quiz" && current && <main className="quiz-wrap"><div className="quiz-topline"><button className="back-link" onClick={() => setScreen("home")}><Home size={15}/> Exit quiz</button><span className="round-label">ROUND {String(index + 1).padStart(2, "0")} <i>/ {String(questions.length).padStart(2, "0")}</i></span><span className="score-pill"><Zap size={15} fill="currentColor"/> {score} pts</span></div><div className="progress-track"><div style={{width: progress + "%"}}/></div><section className="question-card"><div className="question-meta"><span className="topic-pill">{categories.find(c => c.name === current.category)?.emoji} {current.category}</span><span className={"quick-pill timer-pill " + (secondsLeft <= 5 && selected === null ? "timer-urgent" : "")}><Timer size={13}/> {selected === -1 ? "TIME UP" : `${String(secondsLeft).padStart(2,"0")} SEC`}</span></div><div className="question-number">QUESTION {String(index + 1).padStart(2, "0")}</div><h1>{current.question}</h1><p className="question-hint">Choose the best answer below.</p><div className="answers-grid">{current.options.map((option, i) => <button key={option} disabled={selected !== null} onClick={() => chooseAnswer(i)} className={"answer-option " + (selected !== null && i === current.answer ? "answer-correct" : selected === i ? "answer-wrong" : "")}><span className="answer-letter">{String.fromCharCode(65 + i)}</span><span>{option}</span><span className="answer-status">{selected !== null && i === current.answer ? "✓" : selected === i ? "×" : ""}</span></button>)}</div>{selected !== null && <div className={"explanation " + (selected === current.answer ? "explanation-good" : "explanation-bad")}><strong>{selected === current.answer ? "Brilliant! +100 points" : selected === -1 ? "Time’s up! Keep moving." : "Not quite — keep going!"}</strong><p>{current.explanation}</p></div>}<div className="question-footer"><span><CircleHelp size={15}/> {selected === null ? "Trust your instincts" : "Answer locked in"}</span><button className="primary-button" disabled={selected === null} onClick={nextQuestion}>{index + 1 === questions.length ? "See results" : "Next question"} <ChevronRight size={17}/></button></div></section><div className="quiz-bottom"><span><Music2 size={15}/> {music.enabled ? "Chill mode is on" : "Want a soundtrack?"}</span><button onClick={() => music.enabled ? music.stop() : void music.start()}>{music.enabled ? <Pause size={14}/> : <Play size={14}/>} {music.enabled ? "Pause music" : "Play music"}</button><button onClick={() => setShowSettings(true)}><Settings2 size={14}/> Sound settings</button></div></main>}
+    {screen === "quiz" && current && <main className="quiz-wrap"><div className="quiz-topline"><button className="back-link" onClick={() => setScreen("home")}><Home size={15}/> Exit quiz</button><span className="round-label">ROUND {String(index + 1).padStart(2, "0")} <i>/ {String(questions.length).padStart(2, "0")}</i></span><span className="score-pill"><Zap size={15} fill="currentColor"/> {score} pts</span></div><div className="progress-track"><div style={{width: progress + "%"}}/></div><section className="question-card"><div className="question-meta"><span className="topic-pill">{categories.find(c => c.name === current.category)?.emoji} {current.category}</span><span className={`difficulty-pill difficulty-${current.difficulty ?? difficulty}`}>{current.difficulty ?? difficulty}</span><span className={"quick-pill timer-pill " + (secondsLeft <= 5 && selected === null ? "timer-urgent" : "")}><Timer size={13}/> {selected === -1 ? "TIME UP" : `${String(secondsLeft).padStart(2,"0")} SEC`}</span></div><div className="question-number">QUESTION {String(index + 1).padStart(2, "0")}</div><h1>{current.question}</h1><p className="question-hint">Choose the best answer below.</p><div className="answers-grid">{current.options.map((option, i) => <button key={option} disabled={selected !== null} onClick={() => chooseAnswer(i)} className={"answer-option " + (selected !== null && i === current.answer ? "answer-correct" : selected === i ? "answer-wrong" : "")}><span className="answer-letter">{String.fromCharCode(65 + i)}</span><span>{option}</span><span className="answer-status">{selected !== null && i === current.answer ? "✓" : selected === i ? "×" : ""}</span></button>)}</div>{selected !== null && <div className={"explanation " + (selected === current.answer ? "explanation-good" : "explanation-bad")}><strong>{selected === current.answer ? "Brilliant! +100 points" : selected === -1 ? "Time’s up! Keep moving." : "Not quite — keep going!"}</strong><p>{current.explanation}</p></div>}<div className="question-footer"><span><CircleHelp size={15}/> {selected === null ? "Trust your instincts" : "Answer locked in"}</span><button className="primary-button" disabled={selected === null} onClick={nextQuestion}>{index + 1 === questions.length ? "See results" : "Next question"} <ChevronRight size={17}/></button></div></section><div className="quiz-bottom"><span><Music2 size={15}/> {music.enabled ? "Chill mode is on" : "Want a soundtrack?"}</span><button onClick={() => music.enabled ? music.stop() : void music.start()}>{music.enabled ? <Pause size={14}/> : <Play size={14}/>} {music.enabled ? "Pause music" : "Play music"}</button><button onClick={() => setShowSettings(true)}><Settings2 size={14}/> Sound settings</button></div></main>}
 
-    {screen === "results" && <main className="results-wrap"><div className="results-card"><div className="results-medal">{score >= questions.length * 70 ? "🏆" : score > 0 ? "⚡" : "🧠"}</div><span className="eyebrow">ROUND COMPLETE</span><h1>{score >= questions.length * 70 ? "You're on fire!" : "Good game, thinker!"}</h1><p>Every round makes your brain a little stronger.</p><p role="status" aria-live="polite" className="save-status">{saveStatus}</p><div className="results-score">{score}<small>POINTS</small></div><div className="results-stats"><div><strong>{answers.filter(Boolean).length}/{questions.length}</strong><span>Correct answers</span></div><div><strong>{Math.round(answers.filter(Boolean).length / Math.max(1, questions.length) * 100)}%</strong><span>Accuracy</span></div><div><strong>{questions.length * 100}</strong><span>Max points</span></div></div><div className="results-actions"><button className="primary-button" onClick={() => startQuiz(category)}><RotateCcw size={17}/> Play again</button><button className="secondary-button" onClick={() => setScreen("home")}><Home size={17}/> Back home</button></div></div></main>}
+    {screen === "results" && <main className="results-wrap"><div className="results-card"><div className="results-medal">{score >= questions.length * 70 ? "🏆" : score > 0 ? "⚡" : "🧠"}</div><span className="eyebrow">{dailyChallenge ? "DAILY CHALLENGE COMPLETE" : "ROUND COMPLETE"}</span><h1>{score >= questions.length * 70 ? "You're on fire!" : "Good game, thinker!"}</h1><p>Every round makes your brain a little stronger.</p><p role="status" aria-live="polite" className="save-status">{saveStatus}</p><div className="results-score">{score}<small>POINTS</small></div><div className="results-stats"><div><strong>{answers.filter(Boolean).length}/{questions.length}</strong><span>Correct answers</span></div><div><strong>{Math.round(answers.filter(Boolean).length / Math.max(1, questions.length) * 100)}%</strong><span>Accuracy</span></div><div><strong>{questions.length * 100}</strong><span>Max points</span></div></div>{dailyChallenge && <p className="daily-results-streak">🔥 Daily streak: {currentStreak} day{currentStreak === 1 ? "" : "s"} · Best: {bestStreak}</p>}<div className="results-actions"><button className="primary-button" onClick={() => startQuiz(category)}><RotateCcw size={17}/> Play again</button><button className="secondary-button" onClick={() => setScreen("home")}><Home size={17}/> Back home</button></div></div></main>}
   </div>;
 }
