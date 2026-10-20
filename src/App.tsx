@@ -8,7 +8,6 @@ type BoardPeriod = "daily" | "weekly" | "all-time";
 type Question = { id?: number; category: string; question: string; options: string[]; answer: number; explanation: string; difficulty?: Difficulty };
 const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
 const stableHash = (value: string) => { let hash = 2166136261; for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619); return hash >>> 0; };
-const GUEST_HISTORY_KEY = "brain-battle-completed-question-ids";
 const QUESTIONS: Question[] = [
   { category: "Science", question: "Which planet is known as the Red Planet?", options: ["Venus", "Mars", "Jupiter", "Mercury"], answer: 1, explanation: "Mars looks reddish because iron minerals in its soil have oxidized, or rusted." },
   { category: "Technology", question: "What does CPU stand for?", options: ["Computer Power Unit", "Central Processing Unit", "Core Program Utility", "Central Performance User"], answer: 1, explanation: "The CPU executes instructions and performs calculations for a computer." },
