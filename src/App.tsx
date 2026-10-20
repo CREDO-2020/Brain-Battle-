@@ -103,6 +103,7 @@ export default function App() {
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [authPassword, setAuthPassword] = useState("");
   const [authMessage, setAuthMessage] = useState("");
+  const [saveStatus, setSaveStatus] = useState("Your score will be saved when this round finishes.");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const music = useGameMusic();
   const current = questions[index];
@@ -195,10 +196,23 @@ export default function App() {
   }, [screen]);
 
   const saveResult = async () => {
-    if (!supabase) return;
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) return;
-    await supabase.from("quiz_attempts").insert({ user_id: data.user.id, category, score, total_questions: questions.length, correct_answers: answers.filter(Boolean).length });
+    if (!supabase) {
+      setSaveStatus("Score not saved: Supabase is not configured. Check your .env.local file.");
+      return;
+    }
+    setSaveStatus("Saving your score…");
+    const { data, error: userError } = await supabase.auth.getUser();
+    if (userError || !data.user) {
+      setSaveStatus("Score not saved: please sign in again, then finish another quiz.");
+      return;
+    }
+    const { error } = await supabase.from("quiz_attempts").insert({ user_id: data.user.id, category, score, total_questions: questions.length, correct_answers: answers.filter(Boolean).length });
+    if (error) {
+      console.error("Brain Battle could not save quiz result:", error);
+      setSaveStatus("Score not saved: " + error.message);
+      return;
+    }
+    setSaveStatus("Score saved successfully!");
   };
   useEffect(() => { if (screen === "results") void saveResult(); }, [screen]);
 
@@ -233,6 +247,6 @@ export default function App() {
 
     {screen === "quiz" && current && <main className="quiz-wrap"><div className="quiz-topline"><button className="back-link" onClick={() => setScreen("home")}><Home size={15}/> Exit quiz</button><span className="round-label">ROUND {String(index + 1).padStart(2, "0")} <i>/ {String(questions.length).padStart(2, "0")}</i></span><span className="score-pill"><Zap size={15} fill="currentColor"/> {score} pts</span></div><div className="progress-track"><div style={{width: progress + "%"}}/></div><section className="question-card"><div className="question-meta"><span className="topic-pill">{categories.find(c => c.name === current.category)?.emoji} {current.category}</span><span className={"quick-pill timer-pill " + (secondsLeft <= 5 && selected === null ? "timer-urgent" : "")}><Timer size={13}/> {selected === -1 ? "TIME UP" : `${String(secondsLeft).padStart(2,"0")} SEC`}</span></div><div className="question-number">QUESTION {String(index + 1).padStart(2, "0")}</div><h1>{current.question}</h1><p className="question-hint">Choose the best answer below.</p><div className="answers-grid">{current.options.map((option, i) => <button key={option} disabled={selected !== null} onClick={() => chooseAnswer(i)} className={"answer-option " + (selected !== null && i === current.answer ? "answer-correct" : selected === i ? "answer-wrong" : "")}><span className="answer-letter">{String.fromCharCode(65 + i)}</span><span>{option}</span><span className="answer-status">{selected !== null && i === current.answer ? "✓" : selected === i ? "×" : ""}</span></button>)}</div>{selected !== null && <div className={"explanation " + (selected === current.answer ? "explanation-good" : "explanation-bad")}><strong>{selected === current.answer ? "Brilliant! +100 points" : selected === -1 ? "Time’s up! Keep moving." : "Not quite — keep going!"}</strong><p>{current.explanation}</p></div>}<div className="question-footer"><span><CircleHelp size={15}/> {selected === null ? "Trust your instincts" : "Answer locked in"}</span><button className="primary-button" disabled={selected === null} onClick={nextQuestion}>{index + 1 === questions.length ? "See results" : "Next question"} <ChevronRight size={17}/></button></div></section><div className="quiz-bottom"><span><Music2 size={15}/> {music.enabled ? "Chill mode is on" : "Want a soundtrack?"}</span><button onClick={() => music.enabled ? music.stop() : void music.start()}>{music.enabled ? <Pause size={14}/> : <Play size={14}/>} {music.enabled ? "Pause music" : "Play music"}</button><button onClick={() => setShowSettings(true)}><Settings2 size={14}/> Sound settings</button></div></main>}
 
-    {screen === "results" && <main className="results-wrap"><div className="results-card"><div className="results-medal">{score >= questions.length * 70 ? "🏆" : score > 0 ? "⚡" : "🧠"}</div><span className="eyebrow">ROUND COMPLETE</span><h1>{score >= questions.length * 70 ? "You're on fire!" : "Good game, thinker!"}</h1><p>Every round makes your brain a little stronger.</p><div className="results-score">{score}<small>POINTS</small></div><div className="results-stats"><div><strong>{answers.filter(Boolean).length}/{questions.length}</strong><span>Correct answers</span></div><div><strong>{Math.round(answers.filter(Boolean).length / Math.max(1, questions.length) * 100)}%</strong><span>Accuracy</span></div><div><strong>{questions.length * 100}</strong><span>Max points</span></div></div><div className="results-actions"><button className="primary-button" onClick={() => startQuiz(category)}><RotateCcw size={17}/> Play again</button><button className="secondary-button" onClick={() => setScreen("home")}><Home size={17}/> Back home</button></div></div></main>}
+    {screen === "results" && <main className="results-wrap"><div className="results-card"><div className="results-medal">{score >= questions.length * 70 ? "🏆" : score > 0 ? "⚡" : "🧠"}</div><span className="eyebrow">ROUND COMPLETE</span><h1>{score >= questions.length * 70 ? "You're on fire!" : "Good game, thinker!"}</h1><p>Every round makes your brain a little stronger.</p><p role="status" aria-live="polite" className="save-status">{saveStatus}</p><div className="results-score">{score}<small>POINTS</small></div><div className="results-stats"><div><strong>{answers.filter(Boolean).length}/{questions.length}</strong><span>Correct answers</span></div><div><strong>{Math.round(answers.filter(Boolean).length / Math.max(1, questions.length) * 100)}%</strong><span>Accuracy</span></div><div><strong>{questions.length * 100}</strong><span>Max points</span></div></div><div className="results-actions"><button className="primary-button" onClick={() => startQuiz(category)}><RotateCcw size={17}/> Play again</button><button className="secondary-button" onClick={() => setScreen("home")}><Home size={17}/> Back home</button></div></div></main>}
   </div>;
 }
