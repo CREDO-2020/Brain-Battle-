@@ -86,6 +86,7 @@ function useGameMusic() {
 export default function App() {
   const [category, setCategory] = useState("All topics");
   const [screen, setScreen] = useState<"home" | "quiz" | "results">("home");
+  const [questionBank, setQuestionBank] = useState<Question[]>(QUESTIONS);
   const [questions, setQuestions] = useState<Question[]>(QUESTIONS);
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
@@ -93,6 +94,12 @@ export default function App() {
   const [answers, setAnswers] = useState<boolean[]>([]);
   const [soundOn, setSoundOn] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signup");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const music = useGameMusic();
   const current = questions[index];
   const progress = questions.length ? (index / questions.length) * 100 : 0;
@@ -103,12 +110,13 @@ export default function App() {
       .then(({ data, error }) => {
         if (error || !data?.length) return;
         const loaded = data.map((q: any) => ({ category: q.category, question: q.question, options: q.options as string[], answer: q.correct_index, explanation: q.explanation ?? "" }));
+        setQuestionBank(loaded);
         setQuestions(loaded);
       });
   }, []);
 
   const startQuiz = (selectedCategory = category) => {
-    const sourceQuestions = questions.length ? questions : QUESTIONS;
+    const sourceQuestions = questionBank.length ? questionBank : QUESTIONS;
     const pool = sourceQuestions.filter(q => selectedCategory === "All topics" || q.category === selectedCategory);
     const next = [...pool].sort(() => Math.random() - 0.5);
     setQuestions(next.length ? next : QUESTIONS);
@@ -131,6 +139,34 @@ export default function App() {
     setIndex(i => i + 1); setSelected(null);
   };
 
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setUserEmail(data.session?.user.email ?? null));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUserEmail(session?.user.email ?? null));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async () => {
+    if (!supabase) { setAuthMessage("Add your Supabase URL and publishable key to enable accounts."); return; }
+    setAuthMessage("");
+    const result = authMode === "signup"
+      ? await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword })
+      : await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+    if (result.error) { setAuthMessage(result.error.message); return; }
+    if (authMode === "signup" && !result.data.session) {
+      setAuthMessage("Account created. Check your email to confirm it, then sign in.");
+    } else {
+      setUserEmail(result.data.user?.email ?? authEmail.trim());
+      setShowAuth(false);
+      setAuthPassword("");
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (supabase) await supabase.auth.signOut();
+    setUserEmail(null);
+  };
+
   const saveResult = async () => {
     if (!supabase) return;
     const { data } = await supabase.auth.getUser();
@@ -144,8 +180,10 @@ export default function App() {
     <header className="topbar">
       <button className="brand" onClick={() => setScreen("home")} aria-label="Brain Battle home"><span className="brand-icon"><Brain size={23}/></span><span>brain<span className="brand-accent">battle</span><small>THINK FAST. PLAY SMART.</small></span></button>
       <nav><button className={screen === "home" ? "nav-active" : ""} onClick={() => setScreen("home")}><Home size={16}/> Home</button><button onClick={() => setShowSettings(v => !v)}><Settings2 size={16}/> Settings</button></nav>
-      <button className="sound-button" onClick={() => setShowSettings(v => !v)} aria-label="Sound settings">{music.enabled ? <Music2 size={18}/> : <VolumeX size={18}/>}<span>Sound</span></button>
+      <div className="topbar-actions">{userEmail ? <button className="account-button" onClick={() => void handleSignOut()} title="Click to sign out"><span className="account-dot"/> {userEmail.split("@")[0]} · Sign out</button> : <button className="account-button" onClick={() => { setShowAuth(true); setAuthMessage(""); }}><CircleHelp size={15}/> Sign in</button>}<button className="sound-button" onClick={() => setShowSettings(v => !v)} aria-label="Sound settings">{music.enabled ? <Music2 size={18}/> : <VolumeX size={18}/>}<span>Sound</span></button></div>
     </header>
+
+    {showAuth && <div className="modal-backdrop" onClick={() => setShowAuth(false)}><section className="auth-panel" onClick={e => e.stopPropagation()}><button className="auth-close" onClick={() => setShowAuth(false)} aria-label="Close sign in">×</button><div className="auth-mark"><Brain size={24}/></div><span className="eyebrow">YOUR PERSONAL SCORECARD</span><h2>{authMode === "signup" ? "Join Brain Battle" : "Welcome back"}</h2><p>Save your quiz results and keep track of your progress.</p><form onSubmit={e => { e.preventDefault(); void handleAuth(); }}><label>Email address</label><input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required/><label>Password</label><input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} placeholder="At least 6 characters" minLength={6} autoComplete={authMode === "signup" ? "new-password" : "current-password"} required/><button className="primary-button auth-submit" type="submit">{authMode === "signup" ? "Create account" : "Sign in"} <ChevronRight size={16}/></button></form>{authMessage && <p className="auth-message">{authMessage}</p>}<div className="auth-switch">{authMode === "signup" ? "Already have an account?" : "New to Brain Battle?"}<button onClick={() => { setAuthMode(authMode === "signup" ? "signin" : "signup"); setAuthMessage(""); }}>{authMode === "signup" ? "Sign in" : "Create account"}</button></div><small className="auth-footnote">Your password is handled securely by Supabase Auth.</small></section></div>}
 
     {showSettings && <section className="settings-panel">
       <div className="settings-heading"><div><strong>Audio settings</strong><p>Make the vibe yours.</p></div><button className="icon-button" onClick={() => setShowSettings(false)}>×</button></div>
