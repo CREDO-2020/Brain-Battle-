@@ -21,7 +21,8 @@ const categories = [
   { name: "Technology", emoji: "💻", color: "cyan" },
   { name: "General Knowledge", emoji: "🧠", color: "pink" },
   { name: "Sports", emoji: "⚽", color: "green" },
-  { name: "History", emoji: "🏛️", color: "orange" }
+  { name: "History", emoji: "🏛️", color: "orange" },
+  { name: "Movies", emoji: "🎬", color: "orange" }
 ];
 
 function useGameMusic() {
@@ -111,7 +112,7 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("questions").select("category, question, options, correct_index, explanation").eq("is_active", true).limit(50)
+    supabase.from("questions").select("category, question, options, correct_index, explanation").eq("is_active", true).limit(200)
       .then(({ data, error }) => {
         if (error || !data?.length) return;
         const loaded = data.map((q: any) => ({ category: q.category, question: q.question, options: q.options as string[], answer: q.correct_index, explanation: q.explanation ?? "" }));
@@ -236,10 +237,10 @@ export default function App() {
 
     {screen === "home" && <>
       <main className="hero">
-        <div className="hero-copy"><div className="eyebrow"><Sparkles size={14}/> YOUR NEXT BRAIN BREAK</div><h1>Ready to test<br/>your <span>brain power?</span></h1><p>Challenge your knowledge, beat the clock, and climb your way to the top. Every question gets you closer to genius status.</p><div className="hero-actions"><button className="primary-button" onClick={() => startQuiz()}><Zap size={18} fill="currentColor"/> Play now <ChevronRight size={18}/></button><button className="secondary-button" onClick={() => { setShowSettings(true); if (!music.enabled) void music.start(); }}><Music2 size={17}/> Feel the vibe</button></div><div className="hero-proof"><span className="avatar-stack"><i>🧠</i><i>⚡</i><i>🎯</i></span><span><strong>Curiosity looks good on you.</strong><small>10 quick questions • 5 categories</small></span></div></div>
+        <div className="hero-copy"><div className="eyebrow"><Sparkles size={14}/> YOUR NEXT BRAIN BREAK</div><h1>Ready to test<br/>your <span>brain power?</span></h1><p>Challenge your knowledge, beat the clock, and climb your way to the top. Every question gets you closer to genius status.</p><div className="hero-actions"><button className="primary-button" onClick={() => startQuiz()}><Zap size={18} fill="currentColor"/> Play now <ChevronRight size={18}/></button><button className="secondary-button" onClick={() => { setShowSettings(true); if (!music.enabled) void music.start(); }}><Music2 size={17}/> Feel the vibe</button></div><div className="hero-proof"><span className="avatar-stack"><i>🧠</i><i>⚡</i><i>🎯</i></span><span><strong>Curiosity looks good on you.</strong><small>{questionBank.length} questions • {categories.length - 1} categories</small></span></div></div>
         <div className="hero-art"><div className="orbit orbit-a"/><div className="orbit orbit-b"/><div className="brain-card"><div className="brain-glow">🧠</div><span className="floating-tag tag-top"><Zap size={15}/> +100 XP</span><span className="floating-tag tag-bottom"><Crown size={15}/> TOP THINKER</span><span className="sparkle s-one">✦</span><span className="sparkle s-two">✧</span></div><div className="mini-stat stat-left"><span className="stat-icon purple"><Zap size={16}/></span><span><small>Quick round</small><strong>2–4 min</strong></span></div><div className="mini-stat stat-right"><span className="stat-icon green">✓</span><span><small>Keep learning</small><strong>One Q at a time</strong></span></div></div>
       </main>
-      <section className="category-section"><div className="section-heading"><div><span className="eyebrow">PICK YOUR CHALLENGE</span><h2>Choose a category</h2></div><span className="category-count"><CircleHelp size={15}/> 5 categories</span></div><div className="category-grid">{categories.map(c => <button key={c.name} onClick={() => { setCategory(c.name); startQuiz(c.name); }} className={"category-card " + c.color}><span className="category-emoji">{c.emoji}</span><span className="category-name">{c.name}</span><span className="category-sub">{c.name === "All topics" ? "Mixed questions" : "Test your knowledge"}</span><span className="category-arrow"><ChevronRight size={17}/></span></button>)}</div></section>
+      <section className="category-section"><div className="section-heading"><div><span className="eyebrow">PICK YOUR CHALLENGE</span><h2>Choose a category</h2></div><span className="category-count"><CircleHelp size={15}/> {categories.length - 1} categories</span></div><div className="category-grid">{categories.map(c => <button key={c.name} onClick={() => { setCategory(c.name); startQuiz(c.name); }} className={"category-card " + c.color}><span className="category-emoji">{c.emoji}</span><span className="category-name">{c.name}</span><span className="category-sub">{c.name === "All topics" ? "Mixed questions" : "Test your knowledge"}</span><span className="category-arrow"><ChevronRight size={17}/></span></button>)}</div></section>
       <footer className="footer"><span>© 2026 Brain Battle</span><span><Sparkles size={13}/> Made for curious minds</span><button onClick={() => { setShowSettings(true); window.scrollTo({top:0,behavior:"smooth"}); }}><Volume2 size={14}/> Audio settings</button></footer>
     </>}
 
