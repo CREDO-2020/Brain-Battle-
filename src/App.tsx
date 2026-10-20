@@ -140,6 +140,7 @@ export default function App() {
   }, []);
 
   const startQuiz = async (selectedCategory = category, isDaily = false) => {
+    if (supabase && !questionBankLoaded) { setQuestionPoolMessage("Loading the question bank. Please try again in a moment."); return; }
     let completed = completedQuestionIds;
     if (supabase && userId) {
       const { data, error } = await supabase.from("user_question_history").select("question_id").eq("user_id", userId);
