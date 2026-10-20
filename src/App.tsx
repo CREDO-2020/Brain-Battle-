@@ -150,7 +150,7 @@ export default function App() {
     } else {
       try { completed = new Set<number>(JSON.parse(window.localStorage.getItem(GUEST_HISTORY_KEY) ?? "[]").map(Number)); setCompletedQuestionIds(completed); } catch { completed = completedQuestionIds; }
     }
-    const sourceQuestions = (questionBank.length ? questionBank : QUESTIONS).map((q, i) => ({ ...q, difficulty: q.difficulty ?? DIFFICULTIES[i % DIFFICULTIES.length] }));
+    const sourceQuestions = (questionBank.length ? questionBank : QUESTIONS).map((q, i) => ({ ...q, id: q.id ?? stableHash(q.question), difficulty: q.difficulty ?? DIFFICULTIES[i % DIFFICULTIES.length] }));
     const pool = sourceQuestions.filter(q => (selectedCategory === "All topics" || q.category === selectedCategory) && q.difficulty === difficulty && !(q.id && completed.has(q.id)));
     const dateKey = new Date().toISOString().slice(0, 10);
     const ordered = isDaily ? [...pool].sort((a, b) => stableHash(dateKey + ":" + difficulty + ":" + a.question) - stableHash(dateKey + ":" + difficulty + ":" + b.question)).slice(0, 10) : [...pool].sort(() => Math.random() - 0.5);
