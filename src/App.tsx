@@ -147,6 +147,8 @@ export default function App() {
       if (error) { setQuestionPoolMessage("We could not load your saved question history. Please try again."); return; }
       completed = new Set((data ?? []).map((row: any) => Number(row.question_id)));
       setCompletedQuestionIds(completed);
+    } else {
+      try { completed = new Set<number>(JSON.parse(window.localStorage.getItem(GUEST_HISTORY_KEY) ?? "[]").map(Number)); setCompletedQuestionIds(completed); } catch { completed = completedQuestionIds; }
     }
     const sourceQuestions = (questionBank.length ? questionBank : QUESTIONS).map((q, i) => ({ ...q, difficulty: q.difficulty ?? DIFFICULTIES[i % DIFFICULTIES.length] }));
     const pool = sourceQuestions.filter(q => (selectedCategory === "All topics" || q.category === selectedCategory) && q.difficulty === difficulty && !(q.id && completed.has(q.id)));
