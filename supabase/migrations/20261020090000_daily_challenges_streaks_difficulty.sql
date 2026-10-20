@@ -4,12 +4,12 @@ alter table public.questions
 alter table public.questions
   add constraint questions_difficulty_check check (difficulty in ('easy', 'medium', 'hard'));
 
--- Assign sensible starting levels to the current 89-question bank.
+-- Assign a more balanced starting difficulty across the existing 89-question bank.
 -- New questions default to medium and can be tuned individually.
 update public.questions
 set difficulty = case
-  when id in (15,26,31,34,42,45,46,50,56,69,73,75) then 'hard'
-  when id in (1,2,3,4,5,6,7,8,9,10,11,12,13,14,17,18,19,20,21,23,24,25,27,28,29,30,33,35,36,39,43,47,48,51,52,53,54,57,60,61,62,63,64,66,67,70,71,72,74,77,78,79,80,81,85,86,87,88,89) then 'easy'
+  when id in (40,46,26,31,50,75,76,80,83,84,87,89,69,73,74,77,82,56,62,68,86,38,49,64,72,79) then 'hard'
+  when id in (3,9,10,14,57,4,6,16,61,81,88,29,30,35,39,48,52,53,1,7,8,17,23,5,11,13,32,2,12,18,20,21) then 'easy'
   else 'medium'
 end
 where id between 1 and 89;
