@@ -165,6 +165,12 @@ export default function App() {
     if (supabase && userId) {
       const { error } = await supabase.from("user_question_history").upsert({ user_id: userId, question_id: questionId }, { onConflict: "user_id,question_id", ignoreDuplicates: true });
       if (error) console.error("Brain Battle could not save question history:", error.message);
+    } else {
+      try {
+        const guest = new Set<number>(JSON.parse(window.localStorage.getItem(GUEST_HISTORY_KEY) ?? "[]").map(Number));
+        guest.add(questionId);
+        window.localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify([...guest]));
+      } catch { /* Browser storage may be unavailable. */ }
     }
   };
 
